@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health Facilities Map</title>
+    <!-- 添加 Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+            margin: 20px 0;
+            z-index: 1;
+        }
+        .custom-zoom-control {
+            background-color: white;
+            padding: 5px;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+        }
+        .location-button {
+            background-color: white;
+            width: 30px;
+            height: 30px;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .location-button:hover {
+            background-color: #f4f4f4;
+        }
+    </style>
+    <!-- Add Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+    <header>
+        <button class="back-button" onclick="goBack()">Back</button>
+        <h1>Health Facilities Near You</h1>
+    </header>
+  
+    <div class="controls">
+        <input id="search-input" type="text" placeholder="Search for health facilities...">
+        <button onclick="searchFacilities()">Search</button>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- 添加 Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map;
+        let markers = [];
+        let facilityMarkers = {};
+
+        // Firebase configuration
+        const firebaseConfig = {
+            // Replace with your Firebase config
+            apiKey: "your-api-key",
+            authDomain: "your-auth-domain",
+            projectId: "your-project-id",
+            storageBucket: "your-storage-bucket",
+            messagingSenderId: "your-messaging-sender-id",
+            appId: "your-app-id"
+        };
+
+//      firebase data   {
+//     name: "New Clinic",
+//     lat: 52.1332,
+//     lng: -106.6700,
+//     address: "123 Main St",
+//     phone: "306-123-4567",
+//     description: "24/7 Emergency Care"
+// }
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        function initMap() {
+            const SASKATOON_CENTER = {
+                lat: 52.1332,
+                lng: -106.6700
+            };
+            
+            // 初始化地图，添加缩放控件
+            map = L.map('map', {
+                center: [SASKATOON_CENTER.lat, SASKATOON_CENTER.lng],
+                zoom: 13,
+                zoomControl: false // 禁用默认缩放控件
+            });
+            
+            // 添加地图图层
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // 添加自定义缩放控件
+            L.control.zoom({
+                position: 'topright',
+                zoomInText: '+',
+                zoomOutText: '-',
+                zoomInTitle: 'Zoom in',
+                zoomOutTitle: 'Zoom out'
+            }).addTo(map);
+
+            // 添加定位按钮
+            const locationControl = L.control({position: 'topright'});
+            locationControl.onAdd = function(map) {
+                const div = L.DomUtil.create('div', 'location-button');
+                div.innerHTML = '📍';
+                div.title = 'Show my location';
+                div.onclick = function() {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                            (position) => {
+                                const lat = position.coords.latitude;
+                                const lng = position.coords.longitude;
+                                map.setView([lat, lng], 15);
+                                
+                                // 添加或更新用户位置标记
+                                if (window.userMarker) {
+                                    map.removeLayer(window.userMarker);
+                                }
+                                window.userMarker = L.marker([lat, lng])
+                                    .addTo(map)
+                                    .bindPopup('You are here')
+                                    .openPopup();
+                            },
+                            () => {
+                                alert("Could not get your location");
+                            }
+                        );
+                    } else {
+                        alert("Geolocation is not supported by your browser");
+                    }
+                };
+                return div;
+            };
+            locationControl.addTo(map);
+
+            // 添加 Saskatoon 中心标记
+            L.marker([SASKATOON_CENTER.lat, SASKATOON_CENTER.lng])
+                .addTo(map)
+                .bindPopup('Saskatoon City Center')
+                .openPopup();
+
+            initRealTimeUpdates();
+        }
+
+        function initRealTimeUpdates() {
+            // 监听 facilities 集合的变化
+            db.collection("facilities").onSnapshot((snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    const facility = change.doc.data();
+                    const facilityId = change.doc.id;
+
+                    if (change.type === "added" || change.type === "modified") {
+                        // 添加或更新标记
+                        if (facilityMarkers[facilityId]) {
+                            // 更新现有标记
+                            map.removeLayer(facilityMarkers[facilityId]);
+                        }
+                        
+                        // 创建新标记
+                        const marker = L.marker([facility.lat, facility.lng])
+                            .addTo(map)
+                            .bindPopup(`
+                                <b>${facility.name}</b><br>
+                                ${facility.address || ''}<br>
+                                ${facility.phone || ''}<br>
+                                ${facility.description || ''}
+                            `);
+                        
+                        facilityMarkers[facilityId] = marker;
+
+                    } else if (change.type === "removed") {
+                        // 删除标记
+                        if (facilityMarkers[facilityId]) {
+                            map.removeLayer(facilityMarkers[facilityId]);
+                            delete facilityMarkers[facilityId];
+                        }
+                    }
+                });
+            }, (error) => {
+                console.error("Error listening to facility updates:", error);
+            });
+        }
+
+        // 修改搜索函数以使用实时数据
+        function searchFacilities() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            
+            // 隐藏所有标记
+            Object.values(facilityMarkers).forEach(marker => {
+                map.removeLayer(marker);
+            });
+
+            // 只显示匹配的标记
+            db.collection("facilities")
+                .get()
+                .then((querySnapshot) => {
+                    querySnapshot.forEach((doc) => {
+                        const facility = doc.data();
+                        if (facility.name.toLowerCase().includes(searchTerm)) {
+                            facilityMarkers[doc.id].addTo(map);
+                        }
+                    });
+                })
+                .catch((error) => {
+                    console.error("Error searching facilities:", error);
+                });
+        }
+
+        function goBack() {
+            window.history.back();
+        }
+
+        // 初始化地图
+        window.onload = initMap;
+    </script>
+</body>
+</html>

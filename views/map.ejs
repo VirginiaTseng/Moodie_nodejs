@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Incident Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map { height: 100vh; }
+        .incident-popup { max-width: 300px; }
+        .incident-image { width: 100%; max-height: 200px; object-fit: cover; }
+    </style>
+</head>
+<body>
+    start here
+    <div id="map"></div>
+    
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        const incidents = null;
+        
+        const map = L.map('map').setView([52.1332, -106.6700], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        
+        incidents.forEach(incident => {
+            const marker = L.marker([incident.latitude, incident.longitude])
+                .addTo(map);
+            
+            let popupContent = `
+                <div class="incident-popup">
+                    <h3>${incident.type}</h3>
+                    <p>${incident.description}</p>
+                    <p>Reported: ${new Date(incident.timestamp._seconds * 1000).toLocaleString()}</p>
+            `;
+            
+            if (incident.imageURL) {
+                popupContent += `<img src="${incident.imageURL}" class="incident-image">`;
+            }
+            
+            popupContent += '</div>';
+            marker.bindPopup(popupContent);
+        });
+    </script>
+</body>
+</html>
